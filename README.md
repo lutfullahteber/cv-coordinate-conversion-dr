@@ -84,3 +84,9 @@ Worked:
 image1: 34.92°
 image3: 39.30°
 These angles = the panorama capture yaw (how much the camera rotated between shots).
+
+Tested in .exe and in:
+
+```
+python test-viewer.py --from output
+```
