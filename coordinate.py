@@ -24,7 +24,7 @@ B = identity. No extra ply-cam fix needed.
 Pipeline:
     python coordinate.py --convert
     python coordinate.py --flatten      # align camera X axes to anchor (image2)
-    python coordinate.py --yaw          # v1 (BUGGY): world-Y rotation, vertical drift
+    python coordinate.py --yaw          # rotate image1/image3 about own Y at own t
 """
 import argparse
 import os
@@ -212,42 +212,37 @@ def _signed_yaw(a_xz, b_xz):
     return np.degrees(np.arctan2(az * bx - ax * bz, ax * bx + az * bz))
 
 
-def yaw_about_image2(yaw1=None, yaw3=None, anchor_idx=1):
-    """yaw image1 and image3 poses about the WORLD Y axis, pivoting
-    at the anchor's camera position. Full SE(3) yaw applied to whole pose
-    (both rotation block and translation column rotate about the pivot).
-
-        Pivot:  t_pivot = P_anchor[:3, 3]
-        Delta_i = T(t_pivot) . R_y4(theta_i) . T(-t_pivot)
-        P_i'    = Delta_i . P_i
-
-        Expanded:
-            R_i' = R_y3(theta_i) . R_i
-            t_i' = R_y3(theta_i) . (t_i - t_pivot) + t_pivot
-
-    Auto angle: place each cloud's world centroid onto image2's camera-X axis
-    in the horizontal XZ plane.
-        v_i  = (c_i_world - t_pivot)  projected to XZ
-        d    = R_anchor[:, 0]         projected to XZ, unit
-        target_image1 = -d        (image1 -> -X side, "left")
-        target_image3 = +d        (image3 -> +X side, "right")
-        theta_i = _signed_yaw(v_i, target_i)
-
+def yaw_about_image2(yaw1=35.0, yaw3=-39.0, anchor_idx=1):
+    """v2: yaw image1 and image3 poses about each camera's OWN Y axis at its
+    OWN position. Translation column is unchanged because pivot = own t.
     .ply files are untouched; only traj.txt is rewritten.
+
+        R_i'  = R_i . R_y3(theta_i)        # right-multiply: rotate about own local Y
+        t_i'  = t_i                         # pivot = own position -> t unchanged
+
+    Identity used:
+        Let u_i = R_i . e_y = R_i[:, 1] (camera's local Y in world). Rotation
+        about u_i by theta:
+            R_axis(theta) = exp(theta . skew(u_i))
+                          = R_i . exp(theta . skew(e_y)) . R_i^T
+                          = R_i . R_y3(theta) . R_i^T
+        Therefore R_axis . R_i = R_i . R_y3(theta). Right-multiply is one
+        matmul cheaper and clearly shows the local-yaw intent.
+
+    Why v2 fixes the v1 bug: v1 rotated about WORLD Y, but the cameras are
+    not upright (local Y != world Y). World-Y rotation tilted the clouds
+    (vertical drift). Rotating about each camera's own Y is tilt-independent.
+
+    Defaults (yaw1=+35, yaw3=-39) match the panorama capture angles reported
+    by --flatten and were visually verified in the .exe viewer.
     """
     if not os.path.exists(TRAJ_OUT):
         raise SystemExit("no output/traj.txt; run --convert first")
     poses = load_traj(TRAJ_OUT)
-    t_pivot = poses[anchor_idx][:3, 3]
-    R_anchor = poses[anchor_idx][:3, :3]
-    d = R_anchor[:, 0]                                   # image2's camera X in world
-    d_xz = np.array([d[0], d[2]])
-    d_xz /= max(np.linalg.norm(d_xz), 1e-12)
-    print(f"pivot=image{anchor_idx+1} t={t_pivot.round(3).tolist()}  "
-          f"d_xz(image2 X)={d_xz.round(3).tolist()}  (traj.txt only)")
+    print(f"yaw v2 (own-Y): pivot=own t_i, axis=own R_i[:,1]  "
+          f"(rotation block only, t unchanged)")
 
-    overrides = {0: yaw1, 2: yaw3}
-    sign = {0: -1.0, 2: +1.0}                            # image1 -> -d, image3 -> +d
+    angles = {0: yaw1, 2: yaw3}
     new_poses = []
     for i, (P, name) in enumerate(zip(poses, IMAGES)):
         if i == anchor_idx:
@@ -255,25 +250,15 @@ def yaw_about_image2(yaw1=None, yaw3=None, anchor_idx=1):
             print(f"  image{i+1}: anchor, pose unchanged")
             continue
 
-        if overrides.get(i) is not None:
-            theta = float(overrides[i])
-            src = "manual"
-        else:
-            pcd = o3d.io.read_point_cloud(os.path.join(POINTS_OUT, name))
-            pts = np.asarray(pcd.points)
-            c_i = (pts @ P[:3, :3].T + P[:3, 3]).mean(axis=0)   # world centroid
-            v = c_i - t_pivot
-            v_xz = np.array([v[0], v[2]])
-            target = sign[i] * d_xz
-            theta = _signed_yaw(v_xz, target)
-            src = "auto"
+        R_i = P[:3, :3]
+        t_i = P[:3, 3]
+        theta = float(angles[i])
 
-        R_y3 = rot_y(theta)
         P_new = np.eye(4)
-        P_new[:3, :3] = R_y3 @ P[:3, :3]                          # R_i'  = R_y . R_i
-        P_new[:3, 3]  = R_y3 @ (P[:3, 3] - t_pivot) + t_pivot     # t_i'  = R_y . (t_i - t_pivot) + t_pivot
+        P_new[:3, :3] = R_i @ rot_y(theta)                     # right-multiply: own Y rotation
+        P_new[:3, 3]  = t_i                                    # pivot = own position
         new_poses.append(P_new)
-        print(f"  image{i+1}: yaw {theta:+.2f} deg about WORLD Y at image{anchor_idx+1} ({src})")
+        print(f"  image{i+1}: yaw {theta:+.2f} deg about own Y at own t")
 
     write_traj(TRAJ_OUT, new_poses)
     print(f"done. ply untouched -> {TRAJ_OUT}")
@@ -289,14 +274,13 @@ def main():
                          "(R_align = Rodrigues(R_i[:,0] -> R_anchor[:,0]); "
                          "R_i' = R_align . R_i, t_i unchanged; ply untouched)")
     ap.add_argument("--yaw", action="store_true",
-                    help="v1 (BUGGY): yaw image1/image3 about WORLD Y at "
-                         "image2's position (auto target = +/- image2's X axis; "
-                         "override via --yaw1/--yaw3). Causes vertical drift "
-                         "when cameras are not upright.")
-    ap.add_argument("--yaw1", type=float, default=None,
-                    help="manual yaw for image1 (deg); default = auto")
-    ap.add_argument("--yaw3", type=float, default=None,
-                    help="manual yaw for image3 (deg); default = auto")
+                    help="v2: yaw image1/image3 about each camera's OWN Y axis "
+                         "at OWN position (R_i' = R_i . R_y(theta), t_i unchanged). "
+                         "Tilt-independent; ply untouched.")
+    ap.add_argument("--yaw1", type=float, default=35.0,
+                    help="yaw for image1 (deg); default +35 (panorama capture angle)")
+    ap.add_argument("--yaw3", type=float, default=-39.0,
+                    help="yaw for image3 (deg); default -39 (panorama capture angle)")
     ap.add_argument("--anchor", type=int, default=2,
                     help="1-based anchor index for --flatten / --yaw (default 2)")
     args = ap.parse_args()
