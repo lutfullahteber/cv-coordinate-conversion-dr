@@ -2,6 +2,9 @@
 
 ## Coordinate System Conversion — Computer Vision Assignment
 
+- To see the result with your own test, create `data/` folder, add `Points/` folder and `traj.txt` file and run `one-click.py`.
+
+
 # Approach
 
 While solving this problem, I first worked out the mathematical logic on paper; coordinate conventions, handedness (RH/LH), the change-of-basis matrix M, and etc. Once the math made sense, I started the Python implementation.
@@ -32,6 +35,7 @@ As is says, I only touch `.ply` files while converting from OepnCv to Unity view
         - Last gap: cameras were captured from nearly the same spot, but the panorama needs lateral spread. 
 
 Each step writes only what it owns (poses for `--flatten`/`--yaw`/`--shift`, both for `--convert`), so each can be re-run cleanly from --convert.
+
 
 ## Steps
 
