@@ -81,12 +81,22 @@ t_i' = t_i                  (translation preserved)
 
 Worked:
 
+```
 image1: 34.92°
 image3: 39.30°
 These angles = the panorama capture yaw (how much the camera rotated between shots).
+```
 
 Tested in .exe and in:
 
 ```
 python test-viewer.py --from output
 ```
+
+## Rotate around the y-axis to bring them into a straight line.
+
+Rotating image1 and image3 about Y, image1 left, image3 right. image2 fixed.
+
+world Y axis, pivot = image2's position, full SE(3) yaw (R and t rotated together).
+
+Auto angles: image1 = -99°, image3 = +85°.

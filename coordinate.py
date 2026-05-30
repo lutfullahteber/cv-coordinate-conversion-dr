@@ -24,6 +24,7 @@ B = identity. No extra ply-cam fix needed.
 Pipeline:
     python coordinate.py --convert
     python coordinate.py --flatten      # align camera X axes to anchor (image2)
+    python coordinate.py --yaw          # v1 (BUGGY): world-Y rotation, vertical drift
 """
 import argparse
 import os
@@ -187,6 +188,97 @@ def flatten(anchor_idx=1):
     print(f"done. ply files untouched -> {TRAJ_OUT}")
 
 
+def rot_y(deg):
+    """3x3 rotation about world Y axis (deg). Right-hand rule about +Y:
+    R_y(theta) . (1, 0, 0) = (cos, 0, -sin),  R_y(theta) . (0, 0, 1) = (sin, 0, cos).
+    """
+    a = np.radians(deg)
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[ c, 0, s],
+                     [ 0, 1, 0],
+                     [-s, 0, c]])
+
+
+def _signed_yaw(a_xz, b_xz):
+    """Signed angle (deg) from a to b in XZ plane, sign by right-hand rule about +Y.
+
+    Returns theta such that R_y(theta) . a = ||a|| * b_hat in XZ.
+        num = a_z * b_x - a_x * b_z       # "cross"-style component
+        den = a_x * b_x + a_z * b_z       # dot
+        theta = atan2(num, den)
+    """
+    ax, az = a_xz
+    bx, bz = b_xz
+    return np.degrees(np.arctan2(az * bx - ax * bz, ax * bx + az * bz))
+
+
+def yaw_about_image2(yaw1=None, yaw3=None, anchor_idx=1):
+    """yaw image1 and image3 poses about the WORLD Y axis, pivoting
+    at the anchor's camera position. Full SE(3) yaw applied to whole pose
+    (both rotation block and translation column rotate about the pivot).
+
+        Pivot:  t_pivot = P_anchor[:3, 3]
+        Delta_i = T(t_pivot) . R_y4(theta_i) . T(-t_pivot)
+        P_i'    = Delta_i . P_i
+
+        Expanded:
+            R_i' = R_y3(theta_i) . R_i
+            t_i' = R_y3(theta_i) . (t_i - t_pivot) + t_pivot
+
+    Auto angle: place each cloud's world centroid onto image2's camera-X axis
+    in the horizontal XZ plane.
+        v_i  = (c_i_world - t_pivot)  projected to XZ
+        d    = R_anchor[:, 0]         projected to XZ, unit
+        target_image1 = -d        (image1 -> -X side, "left")
+        target_image3 = +d        (image3 -> +X side, "right")
+        theta_i = _signed_yaw(v_i, target_i)
+
+    .ply files are untouched; only traj.txt is rewritten.
+    """
+    if not os.path.exists(TRAJ_OUT):
+        raise SystemExit("no output/traj.txt; run --convert first")
+    poses = load_traj(TRAJ_OUT)
+    t_pivot = poses[anchor_idx][:3, 3]
+    R_anchor = poses[anchor_idx][:3, :3]
+    d = R_anchor[:, 0]                                   # image2's camera X in world
+    d_xz = np.array([d[0], d[2]])
+    d_xz /= max(np.linalg.norm(d_xz), 1e-12)
+    print(f"pivot=image{anchor_idx+1} t={t_pivot.round(3).tolist()}  "
+          f"d_xz(image2 X)={d_xz.round(3).tolist()}  (traj.txt only)")
+
+    overrides = {0: yaw1, 2: yaw3}
+    sign = {0: -1.0, 2: +1.0}                            # image1 -> -d, image3 -> +d
+    new_poses = []
+    for i, (P, name) in enumerate(zip(poses, IMAGES)):
+        if i == anchor_idx:
+            new_poses.append(P.copy())
+            print(f"  image{i+1}: anchor, pose unchanged")
+            continue
+
+        if overrides.get(i) is not None:
+            theta = float(overrides[i])
+            src = "manual"
+        else:
+            pcd = o3d.io.read_point_cloud(os.path.join(POINTS_OUT, name))
+            pts = np.asarray(pcd.points)
+            c_i = (pts @ P[:3, :3].T + P[:3, 3]).mean(axis=0)   # world centroid
+            v = c_i - t_pivot
+            v_xz = np.array([v[0], v[2]])
+            target = sign[i] * d_xz
+            theta = _signed_yaw(v_xz, target)
+            src = "auto"
+
+        R_y3 = rot_y(theta)
+        P_new = np.eye(4)
+        P_new[:3, :3] = R_y3 @ P[:3, :3]                          # R_i'  = R_y . R_i
+        P_new[:3, 3]  = R_y3 @ (P[:3, 3] - t_pivot) + t_pivot     # t_i'  = R_y . (t_i - t_pivot) + t_pivot
+        new_poses.append(P_new)
+        print(f"  image{i+1}: yaw {theta:+.2f} deg about WORLD Y at image{anchor_idx+1} ({src})")
+
+    write_traj(TRAJ_OUT, new_poses)
+    print(f"done. ply untouched -> {TRAJ_OUT}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -196,14 +288,25 @@ def main():
                     help="align non-anchor camera X axes with the anchor "
                          "(R_align = Rodrigues(R_i[:,0] -> R_anchor[:,0]); "
                          "R_i' = R_align . R_i, t_i unchanged; ply untouched)")
+    ap.add_argument("--yaw", action="store_true",
+                    help="v1 (BUGGY): yaw image1/image3 about WORLD Y at "
+                         "image2's position (auto target = +/- image2's X axis; "
+                         "override via --yaw1/--yaw3). Causes vertical drift "
+                         "when cameras are not upright.")
+    ap.add_argument("--yaw1", type=float, default=None,
+                    help="manual yaw for image1 (deg); default = auto")
+    ap.add_argument("--yaw3", type=float, default=None,
+                    help="manual yaw for image3 (deg); default = auto")
     ap.add_argument("--anchor", type=int, default=2,
-                    help="1-based anchor index for --flatten (default 2)")
+                    help="1-based anchor index for --flatten / --yaw (default 2)")
     args = ap.parse_args()
 
     if args.convert:
         convert()
     elif args.flatten:
         flatten(anchor_idx=args.anchor - 1)
+    elif args.yaw:
+        yaw_about_image2(args.yaw1, args.yaw3, anchor_idx=args.anchor - 1)
     else:
         ap.print_help()
 
