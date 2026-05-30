@@ -52,7 +52,7 @@ M·B = diag(1, -1, -1)  applied to ply
 ```
 Reasoning: OpenCV → Unity assumed up-axis + handedness flip.
 
-### It was wrong!
+### It was wrong but I solved it!
 
 Check the original file and converted file and noticed I must drop Y and flip Z and X. 
 
@@ -63,3 +63,24 @@ det = +1                        (two reflections cancel)
 
 - And this worked! Source and Unity share handedness; only X+Z directions differ; Y left alone because flipping it inverted the scene.
 
+## Alignment
+
+As I see in the original file, `image1.ply`, `image2.ply` and `image3.ply` files are mixed and rotated around **their camera's coordination.
+
+Aligning image1 and image3's X axes with image2's X. 
+
+Rodrigues rotation_between(a, b) formula, minimal SO(3) rotation:
+
+```
+a = R_i[:, 0]               (current X)
+b = R_anchor[:, 0]          (target X)
+R_align = Rodrigues(a → b)
+R_i' = R_align · R_i        (rotation block only)
+t_i' = t_i                  (translation preserved)
+```
+
+Worked:
+
+image1: 34.92°
+image3: 39.30°
+These angles = the panorama capture yaw (how much the camera rotated between shots).
