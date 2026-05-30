@@ -9,12 +9,17 @@ applied to both files so the invariant `P_v * p_v = M * (P * p)` holds:
     p_v = M . B . p              (baked into each .ply)
     P_v = M . P . M^-1           (baked into traj.txt — similarity transform)
 
-Initial hypothesis (first attempt):
-    M = diag(1, -1, 1)    (flipY)   OpenCV -> Unity: up-axis + handedness in one
-                                    matrix (det -1 = single reflection = RH -> LH).
-    B = diag(1, 1, -1)    (flipZ)   .ply camera frame (+Z forward, OpenCV) ->
-                                    pose camera frame (-Z forward, OpenGL-style).
-    M.B = diag(1, -1, -1)           net transform applied to ply points.
+Working M (verified in the .exe viewer):
+    M_Z = diag( 1, 1, -1)           step 1: negate Z (fix front/back)
+    M_X = diag(-1, 1,  1)           step 2: negate X (180 deg yaw about Y, with Z)
+    M   = M_X . M_Z = diag(-1, 1, -1)
+    det M = +1                       proper rotation (two reflections cancel).
+
+Geometric reading: source world and Unity world share the same handedness for
+this dataset; only the X and Z axis directions differ. Y is left untouched
+because flipping it inverts the vertical (scene renders upside down).
+
+B = identity. No extra ply-cam fix needed.
 
 Pipeline:
     python coordinate.py --convert
@@ -33,8 +38,10 @@ POINTS_OUT = os.path.join(OUT, "Points")
 TRAJ_OUT = os.path.join(OUT, "traj.txt")
 IMAGES = ["image1.ply", "image2.ply", "image3.ply"]
 
-M_DEFAULT = np.diag([1.0, -1.0, 1.0])   # flipY: OpenCV -> Unity (up-axis + handedness)
-B_DEFAULT = np.diag([1.0, 1.0, -1.0])   # flipZ: ply-cam (+Z fwd) -> pose-cam (-Z fwd)
+M_Z = np.diag([1.0, 1.0, -1.0])         # step 1: negate Z
+M_X = np.diag([-1.0, 1.0, 1.0])         # step 2: negate X (180 deg yaw about Y, together with Z)
+M_DEFAULT = M_X @ M_Z                   # = diag(-1, 1, -1), Z-then-X composition
+B_DEFAULT = np.eye(3)                   # no extra ply-cam fix needed
 
 
 def to4(R3, t=None):
@@ -74,8 +81,8 @@ def convert():
     M4inv = M4.T                                # orthogonal: inv = transpose
 
     os.makedirs(POINTS_OUT, exist_ok=True)
-    print(f"convert: M=diag(1,-1,1) flipY  B=diag(1,1,-1) flipZ  "
-          f"(det M = {int(round(np.linalg.det(M)))}, det M.B = {int(round(np.linalg.det(L3)))})")
+    print(f"convert: M=M_X.M_Z=diag(-1,1,-1)  B=identity  "
+          f"(det M = {int(round(np.linalg.det(M)))})")
 
     for name in IMAGES:
         pcd = o3d.io.read_point_cloud(os.path.join(POINTS_IN, name))

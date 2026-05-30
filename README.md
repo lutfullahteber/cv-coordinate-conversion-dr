@@ -51,3 +51,15 @@ M·B = diag(1, -1, -1)  applied to ply
 
 ```
 Reasoning: OpenCV → Unity assumed up-axis + handedness flip.
+
+### It was wrong!
+
+Check the original file and converted file and noticed I must drop Y and flip Z and X. 
+
+```
+M_X · M_Z = diag(-1, 1, -1)    (180° about Y axis)
+det = +1                        (two reflections cancel)
+```
+
+- And this worked! Source and Unity share handedness; only X+Z directions differ; Y left alone because flipping it inverted the scene.
+
