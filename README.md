@@ -97,6 +97,12 @@ python test-viewer.py --from output
 
 Rotating image1 and image3 about Y, image1 left, image3 right. image2 fixed.
 
+```
 world Y axis, pivot = image2's position, full SE(3) yaw (R and t rotated together).
 
 Auto angles: image1 = -99°, image3 = +85°.
+```
+
+### Tested with test-viewer.py and it's wrong.
+
+Noticed we do rotation around `World Y` which is not correct. It must be around own Y rotation!
