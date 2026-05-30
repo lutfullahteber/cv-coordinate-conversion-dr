@@ -1,9 +1,12 @@
 # Folders : Copied data folder to not touching original files
+# Output foder : generated files by the coordinate.py
 # README.md
 # gitignore
+
 
 
 *
 !.gitignore
 !README.md
 !coordinate.py
+!test-viewer.py
