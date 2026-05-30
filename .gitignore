@@ -10,3 +10,8 @@
 !README.md
 !coordinate.py
 !test-viewer.py
+!output/
+!output/traj.txt
+!output/Points/
+!output/Points/*.ply
+!.gitattributes
