@@ -129,3 +129,11 @@ Auto delta (edge alignment):
 This numbers turned out wrong. I manually found the perfect distance.
 - Image1 : -1.0
 - Image3 : +0.5
+
+## TESTED! IT WORKS
+
+Tested in both `.exe` and:
+
+```
+python test-viever.py --from output
+```
