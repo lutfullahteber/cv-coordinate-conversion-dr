@@ -106,3 +106,26 @@ Auto angles: image1 = -99°, image3 = +85°.
 ### Tested with test-viewer.py and it's wrong.
 
 Noticed we do rotation around `World Y` which is not correct. It must be around own Y rotation!
+
+### Solved : Rotation own Y Axis works
+
+Everything works so far. 
+
+### X axis translation
+
+Next step: push image1 to image2's `-X` side, image3 to `+X` side for a clean fit.
+
+Translation:
+```
+t_i' = t_i + delta · R_anchor[:, 0]
+R_i' = R_i                   (rotation untouched)
+```
+
+Auto delta (edge alignment):
+
+- image1: -2.397 (right edge → image2's left edge)
+- image3: +1.556 (left edge → image2's right edge)
+
+This numbers turned out wrong. I manually found the perfect distance.
+- Image1 : -1.0
+- Image3 : +0.5
