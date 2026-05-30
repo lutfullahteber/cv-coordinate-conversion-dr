@@ -2,6 +2,36 @@
 
 ## Coordinate System Conversion — Computer Vision Assignment
 
+# Approach
+
+While solving this problem, I first worked out the mathematical logic on paper; coordinate conventions, handedness (RH/LH), the change-of-basis matrix M, and etc. Once the math made sense, I started the Python implementation.
+
+I'd like to inform you this is my second attempt. Thought I understood the assignment but turned out everything messed up.
+
+While writing the Python code, I used Claude Code (Opus 4.7) as a sparring partner for the math derivations and to debug a few non-obvious failures (the world-Y vs own-Y tilt artefact in particular).
+
+As is says, I only touch `.ply` files while converting from OepnCv to Unity viewer. Otherwise I always configurate `traj.txt` file!
+
+- --convert
+    - Converting coordinations from OpenCV to Unity needs an up-axis + handedness fix. 
+        - It was Y/Z. 
+        - Viewer refected it. 
+        - Tried Z flip alone. 
+        - Closer, but the scene faced away. Added X on top: `M = M_X · M_Z = diag(-1, 1, -1)`, `det = +1 (proper 180° rotation about Y)`. 
+        - Worked.  
+- --flatten
+    - The three camera X axes were ~35°/40° off (panorama capture yaw). 
+        - Baked the rotation into the `traj.txt` and rotated around it's X axis.
+- --yaw 
+    - Needed to spread `image1` left and `image3` right. 
+        - First attempt: world-Y rotation at image2's position. 
+        - Bug: cameras aren't upright `(local Y ≠ world Y)`, so world-Y tilted clouds vertically. 
+        - Fixed by rotating about each camera's own Y at its own position
+- --shift 
+    - Last gap: cameras were captured from nearly the same spot, but the panorama needs lateral spread. 
+
+Each step writes only what it owns (poses for `--flatten`/`--yaw`/`--shift`, both for `--convert`), so each can be re-run cleanly from --convert.
+
 ## Steps
 
 ### Initial - inspect the input
