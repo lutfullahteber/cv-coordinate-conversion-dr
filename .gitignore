@@ -1,0 +1,8 @@
+# Folders : Copied data folder to not touching original files
+# README.md
+# gitignore
+
+
+*
+!.gitignore
+!README.md
